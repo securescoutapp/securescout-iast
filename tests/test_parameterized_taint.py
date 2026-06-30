@@ -55,7 +55,7 @@ def test_psycopg2_parameterized_taint():
         cursor.execute("SELECT * FROM users WHERE password = %s", ("tainted_password",))
         assert len(reporter_calls) == 1
         assert reporter_calls[0]["rule"] == "sql_injection_taint_flow"
-        assert reporter_calls[0]["tainted_value"] == "tainted_password"
+        assert reporter_calls[0]["tainted_value"].startswith("ta***rd [sha256:")
         assert reporter_calls[0]["source"] == "body"
 
         # clean parameterized query (untainted value) -> no finding
@@ -68,7 +68,7 @@ def test_psycopg2_parameterized_taint():
         cursor.executemany("INSERT INTO audit (val) VALUES (%s)", [("clean_val",), ("tainted_password",)])
         assert len(reporter_calls) == 1
         assert reporter_calls[0]["rule"] == "sql_injection_taint_flow"
-        assert reporter_calls[0]["tainted_value"] == "tainted_password"
+        assert reporter_calls[0]["tainted_value"].startswith("ta***rd [sha256:")
 
     ctx.run(run_test)
     sys.modules.pop("psycopg2", None)
@@ -117,7 +117,7 @@ def test_asyncpg_parameterized_taint():
         await conn.execute("SELECT * FROM items WHERE name = $1", "tainted_search")
         assert len(reporter_calls) == 1
         assert reporter_calls[0]["rule"] == "sql_injection_taint_flow"
-        assert reporter_calls[0]["tainted_value"] == "tainted_search"
+        assert reporter_calls[0]["tainted_value"].startswith("ta***ch [sha256:")
 
         # clean call
         reporter_calls.clear()
@@ -175,7 +175,7 @@ def test_sqlite3_parameterized_taint_and_idempotency():
         cursor.execute("INSERT INTO t VALUES (?)", ("tainted_id",))
         assert len(reporter_calls) == 1
         assert reporter_calls[0]["rule"] == "sql_injection_taint_flow"
-        assert reporter_calls[0]["tainted_value"] == "tainted_id"
+        assert reporter_calls[0]["tainted_value"].startswith("ta***id [sha256:")
 
         # Clean parameterized query -> no finding
         reporter_calls.clear()
@@ -187,7 +187,7 @@ def test_sqlite3_parameterized_taint_and_idempotency():
         cursor.executemany("INSERT INTO t VALUES (?)", [("clean_val1",), ("tainted_id",)])
         assert len(reporter_calls) == 1
         assert reporter_calls[0]["rule"] == "sql_injection_taint_flow"
-        assert reporter_calls[0]["tainted_value"] == "tainted_id"
+        assert reporter_calls[0]["tainted_value"].startswith("ta***id [sha256:")
 
     ctx.run(run_test)
     # Restore original connect

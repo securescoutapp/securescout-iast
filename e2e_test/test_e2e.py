@@ -19,7 +19,11 @@ client = TestClient(app)
 
 def test_e2e_sqlite_injection(monkeypatch):
     import securescout_iast.reporter
+    import securescout_iast.middleware
+    import securescout_iast.wsgi_middleware
     monkeypatch.setattr(securescout_iast.reporter, "queue_finding", custom_queue_finding)
+    monkeypatch.setattr(securescout_iast.middleware, "queue_finding", custom_queue_finding)
+    monkeypatch.setattr(securescout_iast.wsgi_middleware, "queue_finding", custom_queue_finding)
     # Clear findings list
     findings.clear()
 
@@ -31,11 +35,11 @@ def test_e2e_sqlite_injection(monkeypatch):
     assert len(findings) == 1
     finding = findings[0]
     assert finding["rule"] == "sql_injection"
-    assert finding["tainted_value"] == "hacker_value"
+    assert finding["tainted_value"].startswith("ha***ue [sha256:")
     assert finding["source"] == "query_param"
     assert finding["field_name"] == "name"
     assert finding["endpoint"] == "GET /vulnerable-search"
-    assert "SELECT * FROM users WHERE name = 'hacker_value'" in finding["query_snippet"]
+    assert "SELECT * FROM users WHERE name = '***'" in finding["query_snippet"]
     assert len(finding["stack_trace"]) > 0
 
     # 2. Trigger safe search
@@ -47,7 +51,7 @@ def test_e2e_sqlite_injection(monkeypatch):
     assert len(findings) == 1
     finding = findings[0]
     assert finding["rule"] == "sql_injection_taint_flow"
-    assert finding["tainted_value"] == "hacker_value"
+    assert finding["tainted_value"].startswith("ha***ue [sha256:")
     assert finding["source"] == "query_param"
     assert finding["field_name"] == "name"
     assert finding["endpoint"] == "GET /safe-search"
@@ -55,7 +59,11 @@ def test_e2e_sqlite_injection(monkeypatch):
 
 def test_e2e_xss_reflected(monkeypatch):
     import securescout_iast.reporter
+    import securescout_iast.middleware
+    import securescout_iast.wsgi_middleware
     monkeypatch.setattr(securescout_iast.reporter, "queue_finding", custom_queue_finding)
+    monkeypatch.setattr(securescout_iast.middleware, "queue_finding", custom_queue_finding)
+    monkeypatch.setattr(securescout_iast.wsgi_middleware, "queue_finding", custom_queue_finding)
     # Clear findings list
     findings.clear()
 
@@ -67,7 +75,7 @@ def test_e2e_xss_reflected(monkeypatch):
     assert len(findings) == 1
     finding = findings[0]
     assert finding["rule"] == "xss_reflected"
-    assert finding["tainted_value"] == "<script>alert(1)</script>"
+    assert finding["tainted_value"].startswith("<s***t> [sha256:")
     assert finding["source"] == "query_param"
     assert finding["field_name"] == "name"
     assert finding["endpoint"] == "GET /xss-vulnerable"

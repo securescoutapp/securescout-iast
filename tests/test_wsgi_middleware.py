@@ -82,8 +82,8 @@ def setup_function():
 
 def test_xss_reflected_detected(monkeypatch):
     import securescout_iast.wsgi_middleware as wm
-    monkeypatch.setattr(wm, "queue_finding" if hasattr(wm, "queue_finding") else "_", _mock_queue_finding, raising=False)
     import securescout_iast.reporter as rep
+    monkeypatch.setattr(wm, "queue_finding", _mock_queue_finding)
     monkeypatch.setattr(rep, "queue_finding", _mock_queue_finding)
 
     payload = "<script>alert(1)</script>"
@@ -94,7 +94,7 @@ def test_xss_reflected_detected(monkeypatch):
     assert payload.encode() in body  # passthrough unchanged
     assert len(captured_findings) == 1
     assert captured_findings[0]["rule"] == "xss_reflected"
-    assert captured_findings[0]["tainted_value"] == payload
+    assert captured_findings[0]["tainted_value"].startswith("<s***t> [sha256:")
 
 def test_xss_escaped_not_flagged(monkeypatch):
     import securescout_iast.reporter as rep

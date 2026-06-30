@@ -3,6 +3,7 @@ import traceback
 from typing import Any
 
 from securescout_iast.taint import check_query_taint, check_params_taint, get_endpoint
+from securescout_iast.redact import redact_tainted_value, redact_query_snippet, redact_stack_trace
 
 logger = logging.getLogger("securescout_iast")
 
@@ -52,12 +53,12 @@ def install_asyncpg_patch(reporter_callback) -> None:
                         ]
                         _reporter_callback(
                             rule=rule,
-                            tainted_value=match["tainted_value"],
+                            tainted_value=redact_tainted_value(match["tainted_value"]),
                             source=match["source"],
                             field_name=match["field_name"],
                             request_id=match["request_id"],
-                            query_snippet=query_str[:200] if isinstance(query_str, str) else "",
-                            stack_trace=stack,
+                            query_snippet=redact_query_snippet(query_str if isinstance(query_str, str) else ""),
+                            stack_trace=redact_stack_trace(stack),
                             endpoint=get_endpoint()
                         )
                 except Exception as e:

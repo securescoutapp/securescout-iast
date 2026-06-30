@@ -22,6 +22,7 @@ from securescout_iast.taint import (
     get_endpoint,
 )
 from securescout_iast.sinks.xss_sink import check_response_taint
+from securescout_iast.reporter import queue_finding
 
 logger = logging.getLogger("securescout_iast")
 
@@ -188,16 +189,16 @@ class _TaintCheckingIterator:
             full_body = b"".join(self._chunks)
             hit = check_response_taint(full_body, self._content_type[0])
             if hit:
-                from securescout_iast.reporter import queue_finding
+                from securescout_iast.redact import redact_tainted_value, redact_stack_trace
                 taint_meta = get_all_tainted_values().get(hit, {})
                 queue_finding(
                     rule="xss_reflected",
-                    tainted_value=hit,
+                    tainted_value=redact_tainted_value(hit),
                     source=taint_meta.get("source", "unknown"),
                     field_name=taint_meta.get("field_name", "unknown"),
                     request_id=self._request_id,
-                    query_snippet=hit[:200],
-                    stack_trace=[str(f) for f in traceback.extract_stack()],
+                    query_snippet=redact_tainted_value(hit),
+                    stack_trace=redact_stack_trace([str(f) for f in traceback.extract_stack()]),
                     endpoint=get_endpoint(),
                 )
         except Exception:
