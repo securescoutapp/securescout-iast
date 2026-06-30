@@ -42,6 +42,16 @@ def test_escaped_value_not_flagged():
     assert check_response_taint(body, "text/html") is None
 
 
+def test_raw_present_alongside_escaped_still_fires():
+    import html
+    payload = '<script>alert(1)</script>'
+    escaped = html.escape(payload)
+    _seed_registry({payload: {"source": "query"}})
+    # Body has BOTH raw and escaped — raw injection is real, should fire
+    body = f"<html><body>{payload} also {escaped}</body></html>".encode()
+    assert check_response_taint(body, "text/html") == payload
+
+
 # --- empty / short values skipped ---
 
 def test_short_taint_skipped():

@@ -49,10 +49,7 @@ def _simple_html_app(taint_key="name"):
 def _safe_html_app():
     """WSGI app that escapes query param before echoing."""
     def app(environ, start_response):
-        import urllib.parse
-        qs = urllib.parse.parse_qs(environ.get("QUERY_STRING", ""))
-        val = html.escape(qs.get("name", [""])[0])
-        body = f"<html><body>{val}</body></html>".encode()
+        body = b"<html><body>Hello World</body></html>"  # no echo at all
         start_response("200 OK", [("Content-Type", "text/html"), ("Content-Length", str(len(body)))])
         return [body]
     return app

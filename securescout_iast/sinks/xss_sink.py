@@ -31,8 +31,10 @@ def check_response_taint(body: bytes, content_type: str) -> Optional[str]:
     for raw_value in tainted:
         if not isinstance(raw_value, str) or len(raw_value) < 2:
             continue
-        # Unescaped presence = XSS risk; escaped presence = safe
-        if raw_value in decoded and html.escape(raw_value) not in decoded:
+        # Fire if raw unescaped value appears anywhere in the body.
+        # Drop the "escaped form not present" clause — if raw is present, it's a finding
+        # regardless of whether an escaped form also appears elsewhere in the document.
+        if raw_value in decoded:
             return raw_value
 
     return None

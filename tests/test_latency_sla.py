@@ -31,7 +31,7 @@ def _start_mock_server():
 
 
 def _reset_reporter(mock_url):
-    rep._api_key = "test-key"
+    rep._api_key = rep._MaskedStr("test-key")
     rep._project_id = "test-project"
     rep._backend_url = mock_url
     rep._consecutive_failures = 0

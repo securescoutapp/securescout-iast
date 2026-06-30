@@ -10,10 +10,27 @@ from typing import List, Optional
 
 logger = logging.getLogger("securescout_iast")
 
+class _MaskedStr:
+    """Wraps a sensitive string so it never appears in repr/str/tracebacks."""
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def __str__(self) -> str:
+        return "***MASKED***"
+
+    def __repr__(self) -> str:
+        return "'***MASKED***'"
+
+    @property
+    def value(self) -> str:
+        return self._value
+
 # Enforce a hard queue cap to prevent memory leaks during backend outages
 _finding_queue: queue.Queue = queue.Queue(maxsize=500)
 _worker_thread: Optional[threading.Thread] = None
-_api_key: str = ""
+_api_key: _MaskedStr = _MaskedStr("")
 _project_id: str = ""
 _backend_url: str = "https://api.getsecurescout.com"
 _running: bool = False
@@ -28,16 +45,24 @@ _dedup_lock = threading.Lock()
 _DEDUP_TTL_SECONDS: int = 3600  # 1 hour
 _last_purge_time: float = 0.0
 
+_MAX_DEDUP_ENTRIES = 10_000
 
-def _is_duplicate(rule: str, tainted_value: str, endpoint: str) -> bool:
+def _is_duplicate(rule: str, tainted_value: str, endpoint: str, stack_trace: list) -> bool:
+    stack_hash = hashlib.sha256("".join(stack_trace).encode()).hexdigest()[:16]
     fingerprint = hashlib.sha256(
-        f"{rule}:{tainted_value}:{endpoint}".encode()
+        f"{rule}:{tainted_value}:{endpoint}:{stack_hash}".encode()
     ).hexdigest()
     now = time.time()
     with _dedup_lock:
         expiry = _dedup_cache.get(fingerprint)
         if expiry and now < expiry:
             return True
+        # Evict oldest 10% if at cap
+        if len(_dedup_cache) >= _MAX_DEDUP_ENTRIES:
+            evict_count = _MAX_DEDUP_ENTRIES // 10
+            oldest = sorted(_dedup_cache.items(), key=lambda x: x[1])[:evict_count]
+            for k, _ in oldest:
+                del _dedup_cache[k]
         _dedup_cache[fingerprint] = now + _DEDUP_TTL_SECONDS
         return False
 
@@ -45,7 +70,7 @@ def _is_duplicate(rule: str, tainted_value: str, endpoint: str) -> bool:
 def init_reporter(api_key: str, project_id: str, backend_url: str = "https://api.getsecurescout.com") -> None:
     """Initializes the background daemon worker and registers config attributes."""
     global _api_key, _project_id, _backend_url, _worker_thread, _running
-    _api_key = api_key
+    _api_key = _MaskedStr(api_key)
     _project_id = project_id
     _backend_url = backend_url.rstrip("/")
     
@@ -70,7 +95,7 @@ def queue_finding(
     Callback function queued by database patches when a query matches a tainted string.
     Drops findings on queue overflow to preserve memory limits.
     """
-    if _is_duplicate(rule, tainted_value, endpoint):
+    if _is_duplicate(rule, tainted_value, endpoint, stack_trace):
         logger.debug(f"SecureScout IAST suppressing duplicate finding: {rule} @ {endpoint}")
         return
 
@@ -108,7 +133,7 @@ def send_heartbeat(framework: str = "fastapi") -> bool:
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "x-api-key": _api_key,
+            "x-api-key": _api_key.value,
             "User-Agent": "SecureScout-IAST-Agent/1.0"
         },
         method="POST"
@@ -173,7 +198,7 @@ def _send_batch(batch: List[dict]) -> bool:
         data=json.dumps(payload).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "x-api-key": _api_key,
+            "x-api-key": _api_key.value,
             "User-Agent": "SecureScout-IAST-Agent/1.0"
         },
         method="POST"
