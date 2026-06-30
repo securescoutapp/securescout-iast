@@ -51,6 +51,34 @@ Drivers are detected automatically. If a driver isn't installed in your environm
 
 This agent inspects request data and SQL query text locally, within your application process, to detect taint matches. Only confirmed findings (rule type, query snippet, stack trace, endpoint) are sent to SecureScout — never raw request bodies or full traffic.
 
+## Disabling & Uninstallation
+
+To completely disable or remove the SecureScout IAST agent:
+
+1. **Remove Middleware**: Remove the `SecureScoutIastMiddleware` (ASGI) or `SecureScoutWsgiMiddleware` (WSGI) wrapper from your application setup.
+2. **Remove Initialization**: Delete or comment out the `init(...)` call in your application entrypoint.
+3. **Uninstall the Package**:
+```bash
+   pip uninstall securescout-iast
+```
+
+### Temporary Disable (Environment-driven)
+
+To disable the agent without modifying imports, wrap `init()` with an environment variable check:
+
+```python
+import os
+from securescout_iast import init
+
+if os.environ.get("SECURESCOUT_IAST_DISABLED") != "true":
+    init(
+        api_key="your-api-key",
+        project_id="your-project-id"
+    )
+```
+
+Set `SECURESCOUT_IAST_DISABLED=true` in your environment to disable the agent at runtime with zero code changes.
+
 ## License
 
 MIT
