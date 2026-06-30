@@ -8,6 +8,9 @@ findings = []
 def custom_queue_finding(**kwargs):
     findings.append(kwargs)
 
+import securescout_iast.reporter
+securescout_iast.reporter.queue_finding = custom_queue_finding
+
 # Install sqlite3 patch using our custom test hook
 install_sqlite3_patch(custom_queue_finding)
 
@@ -41,5 +44,32 @@ def test_e2e_sqlite_injection():
     response = client.get("/safe-search?name=hacker_value")
     assert response.status_code == 200
     
+    # Assert no finding was detected
+    assert len(findings) == 0
+
+
+def test_e2e_xss_reflected():
+    # Clear findings list
+    findings.clear()
+
+    # 1. Trigger vulnerable XSS (hacker_value is >= 6 chars)
+    response = client.get("/xss-vulnerable?name=%3Cscript%3Ealert(1)%3C/script%3E")
+    assert response.status_code == 200
+
+    # Assert finding was detected and attributes match context
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["rule"] == "xss_reflected"
+    assert finding["tainted_value"] == "<script>alert(1)</script>"
+    assert finding["source"] == "query_param"
+    assert finding["field_name"] == "name"
+    assert finding["endpoint"] == "GET /xss-vulnerable"
+    assert len(finding["stack_trace"]) > 0
+
+    # 2. Trigger safe XSS
+    findings.clear()
+    response = client.get("/xss-safe?name=%3Cscript%3Ealert(1)%3C/script%3E")
+    assert response.status_code == 200
+
     # Assert no finding was detected
     assert len(findings) == 0

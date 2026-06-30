@@ -172,3 +172,11 @@ class TaintedStr(str):
 def is_tainted(value: Any) -> bool:
     """Helper function to check if a value is a TaintedStr."""
     return isinstance(value, TaintedStr)
+
+
+def get_all_tainted_values() -> dict:
+    """Return a copy of all tainted values registered in the current request context."""
+    try:
+        return _taint_registry.get().copy()
+    except LookupError:
+        return {}

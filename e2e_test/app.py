@@ -36,3 +36,18 @@ def safe_search(name: str):
     cursor.execute("SELECT * FROM users WHERE name = ?", (name,))
     rows = cursor.fetchall()
     return {"results": rows}
+
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/xss-vulnerable", response_class=HTMLResponse)
+def xss_vulnerable(name: str):
+    # Vulnerable: echoes query parameter unescaped in HTML response
+    return f"<html><body>Hello {name}</body></html>"
+
+
+@app.get("/xss-safe", response_class=HTMLResponse)
+def xss_safe(name: str):
+    # Safe: escapes input
+    import html
+    return f"<html><body>Hello {html.escape(name)}</body></html>"

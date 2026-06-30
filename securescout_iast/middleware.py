@@ -8,7 +8,9 @@ from securescout_iast.taint import (
     init_request_taint_registry,
     register_taint,
     register_endpoint,
-    clear_thread_taint_registry
+    clear_thread_taint_registry,
+    get_all_tainted_values,
+    get_endpoint
 )
 
 logger = logging.getLogger("securescout_iast")
@@ -27,6 +29,10 @@ class SecureScoutIastMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+
+        response_headers: dict = {}
+        body_chunks: list[bytes] = []
+        body_complete = False
 
         # 1. Initialize context-isolated registry and request ID
         request_id = str(uuid.uuid4())
@@ -121,8 +127,55 @@ class SecureScoutIastMiddleware:
                             logger.debug(f"Failed to extract body taints: {e}")
                 return message
 
-            # Execute the ASGI application stack passing the wrapped receive
-            await self.app(scope, wrapped_receive, send)
+            async def wrapped_send(message: dict) -> None:
+                nonlocal response_headers, body_chunks, body_complete
+
+                if message["type"] == "http.response.start":
+                    # Capture headers so we can read content-type later
+                    response_headers = {
+                        k.decode("latin-1").lower(): v.decode("latin-1")
+                        for k, v in message.get("headers", [])
+                    }
+                    await send(message)
+
+                elif message["type"] == "http.response.body":
+                    chunk = message.get("body", b"")
+                    more = message.get("more_body", False)
+                    body_chunks.append(chunk)
+
+                    if not more:
+                        # Final chunk — run XSS check before releasing
+                        try:
+                            full_body = b"".join(body_chunks)
+                            content_type = response_headers.get("content-type", "")
+                            from securescout_iast.sinks.xss_sink import check_response_taint
+                            hit = check_response_taint(full_body, content_type)
+                            if hit:
+                                import traceback
+                                from securescout_iast.reporter import queue_finding
+                                taint_meta = get_all_tainted_values().get(hit, {})
+                                queue_finding(
+                                    rule="xss_reflected",
+                                    tainted_value=hit,
+                                    source=taint_meta.get("source", "unknown"),
+                                    field_name=taint_meta.get("field_name", "unknown"),
+                                    request_id=scope.get("securescout_request_id", request_id),
+                                    query_snippet=hit[:200],
+                                    stack_trace=[str(f) for f in traceback.extract_stack()],
+                                    endpoint=get_endpoint(),
+                                )
+                        except Exception:
+                            pass  # fail-safe — never block the response
+
+                        await send(message)
+                    else:
+                        await send(message)
+
+                else:
+                    await send(message)
+
+            # Execute the ASGI application stack passing the wrapped receive and wrapped send
+            await self.app(scope, wrapped_receive, wrapped_send)
 
         finally:
             # 5. Guaranteed cleanup of contextvars memory
