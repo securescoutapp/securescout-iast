@@ -4,6 +4,7 @@ from securescout_iast.config import DEFAULT_BACKEND_URL
 from securescout_iast.reporter import init_reporter, send_heartbeat, queue_finding
 from securescout_iast.patches.psycopg2_patch import install_psycopg2_patch
 from securescout_iast.patches.asyncpg_patch import install_asyncpg_patch
+from securescout_iast.patches.sqlite3_patch import install_sqlite3_patch
 from securescout_iast.middleware import SecureScoutIastMiddleware
 from securescout_iast.wsgi_middleware import SecureScoutWsgiMiddleware
 
@@ -45,6 +46,7 @@ def init(
         # 2. Inject database driver interception monkey-patches
         install_psycopg2_patch(queue_finding)
         install_asyncpg_patch(queue_finding)
+        install_sqlite3_patch(queue_finding)
 
         # 3. Transmit connection heartbeat on a background thread to prevent blocking boot probes
         threading.Thread(
