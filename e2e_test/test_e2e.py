@@ -43,8 +43,14 @@ def test_e2e_sqlite_injection(monkeypatch):
     response = client.get("/safe-search?name=hacker_value")
     assert response.status_code == 200
     
-    # Assert no finding was detected
-    assert len(findings) == 0
+    # Assert safe search triggers taint flow finding
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["rule"] == "sql_injection_taint_flow"
+    assert finding["tainted_value"] == "hacker_value"
+    assert finding["source"] == "query_param"
+    assert finding["field_name"] == "name"
+    assert finding["endpoint"] == "GET /safe-search"
 
 
 def test_e2e_xss_reflected(monkeypatch):

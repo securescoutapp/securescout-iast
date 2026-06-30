@@ -2,7 +2,7 @@ import logging
 import traceback
 import sqlite3
 
-from securescout_iast.taint import check_query_taint, get_endpoint
+from securescout_iast.taint import check_query_taint, check_params_taint, get_endpoint
 
 logger = logging.getLogger("securescout_iast")
 
@@ -15,6 +15,7 @@ class Sqlite3CursorWrapper:
 
     def execute(self, query, parameters=None):
         try:
+            match = None
             if isinstance(query, str):
                 match = check_query_taint(query)
                 if match:
@@ -33,6 +34,28 @@ class Sqlite3CursorWrapper:
                         stack_trace=stack,
                         endpoint=get_endpoint()
                     )
+
+            # F02 fix — inspect bind parameters
+            if not match and parameters is not None:
+                match = check_params_taint(
+                    parameters if isinstance(parameters, (list, tuple, dict)) else (parameters,)
+                )
+                if match:
+                    stack = [
+                        f"File \"{f.filename}\", line {f.lineno}, in {f.name}\n    {f.line}"
+                        for f in traceback.extract_stack()
+                        if "securescout_iast" not in f.filename
+                    ]
+                    self._reporter_callback(
+                        rule="sql_injection_taint_flow",
+                        tainted_value=match["tainted_value"],
+                        source=match["source"],
+                        field_name=match["field_name"],
+                        request_id=match["request_id"],
+                        query_snippet=query[:200],
+                        stack_trace=stack,
+                        endpoint=get_endpoint()
+                    )
         except Exception as e:
             logger.debug(f"sqlite3 execute hook error: {e}")
 
@@ -42,6 +65,7 @@ class Sqlite3CursorWrapper:
 
     def executemany(self, query, seq_of_parameters):
         try:
+            match = None
             if isinstance(query, str):
                 match = check_query_taint(query)
                 if match:
@@ -57,6 +81,29 @@ class Sqlite3CursorWrapper:
                         field_name=match["field_name"],
                         request_id=match["request_id"],
                         query_snippet=query,
+                        stack_trace=stack,
+                        endpoint=get_endpoint()
+                    )
+
+            # F02 fix — inspect bind parameters
+            if not match and seq_of_parameters:
+                for row in seq_of_parameters:
+                    match = check_params_taint(row if isinstance(row, (list, tuple, dict)) else (row,))
+                    if match:
+                        break
+                if match:
+                    stack = [
+                        f"File \"{f.filename}\", line {f.lineno}, in {f.name}\n    {f.line}"
+                        for f in traceback.extract_stack()
+                        if "securescout_iast" not in f.filename
+                    ]
+                    self._reporter_callback(
+                        rule="sql_injection_taint_flow",
+                        tainted_value=match["tainted_value"],
+                        source=match["source"],
+                        field_name=match["field_name"],
+                        request_id=match["request_id"],
+                        query_snippet=query[:200],
                         stack_trace=stack,
                         endpoint=get_endpoint()
                     )
@@ -95,11 +142,14 @@ class Sqlite3ConnectionWrapper:
 
 def install_sqlite3_patch(reporter_callback) -> None:
     """Monkey-patches the sqlite3.connect module function to return wrapped connections."""
+    if hasattr(sqlite3.connect, "_is_securescout_patch"):
+        return
     _original_connect = sqlite3.connect
 
     def custom_connect(*args, **kwargs):
         real_conn = _original_connect(*args, **kwargs)
         return Sqlite3ConnectionWrapper(real_conn, reporter_callback)
 
+    custom_connect._is_securescout_patch = True
     sqlite3.connect = custom_connect
     logger.info("Successfully installed sqlite3 wrapper patch.")

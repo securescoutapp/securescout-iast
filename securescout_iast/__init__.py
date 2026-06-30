@@ -13,6 +13,7 @@ __all__ = ["SecureScoutIastMiddleware", "SecureScoutWsgiMiddleware", "init"]
 
 logger = logging.getLogger("securescout_iast")
 _initialized = False
+_init_lock = threading.Lock()
 
 
 def init(
@@ -27,37 +28,53 @@ def init(
     Guarantees no exception propagation to avoid interrupting customer application startup.
     """
     global _initialized
-    if _initialized:
-        logger.warning("SecureScout IAST agent is already initialized. Skipping setup.")
-        return
-
-    try:
-        # Check inputs and degrade to no-op on missing parameters without raising ValueErrors
-        if not api_key:
-            logger.error("SecureScout IAST initialization aborted: API Key must not be empty.")
-            return
-        if not project_id:
-            logger.error("SecureScout IAST initialization aborted: Project ID must not be empty.")
+    with _init_lock:
+        if _initialized:
+            logger.warning("SecureScout IAST agent is already initialized. Skipping setup.")
             return
 
-        # 1. Initialize background telemetry batch reporter daemon
-        init_reporter(api_key=api_key, project_id=project_id, backend_url=backend_url)
+        try:
+            # Check inputs and degrade to no-op on missing parameters without raising ValueErrors
+            if not api_key:
+                logger.error("SecureScout IAST initialization aborted: API Key must not be empty.")
+                return
+            if not project_id:
+                logger.error("SecureScout IAST initialization aborted: Project ID must not be empty.")
+                return
 
-        # 2. Inject database driver interception monkey-patches
-        install_psycopg2_patch(queue_finding)
-        install_asyncpg_patch(queue_finding)
-        install_sqlite3_patch(queue_finding)
+            # 1. Initialize background telemetry batch reporter daemon
+            init_reporter(api_key=api_key, project_id=project_id, backend_url=backend_url)
 
-        # 3. Transmit connection heartbeat on a background thread to prevent blocking boot probes
-        threading.Thread(
-            target=send_heartbeat,
-            args=(framework,),
-            daemon=True
-        ).start()
+            # 2. Inject database driver interception monkey-patches
+            install_psycopg2_patch(queue_finding)
+            install_asyncpg_patch(queue_finding)
+            install_sqlite3_patch(queue_finding)
 
-        _initialized = True
-        logger.info("SecureScout IAST agent initialized successfully.")
+            # F13 fix — add import-order warnings:
+            import sys
+            for driver, module in [("psycopg2", "psycopg2"), ("asyncpg", "asyncpg"), ("sqlite3", "sqlite3")]:
+                if module in sys.modules:
+                    mod = sys.modules[module]
+                    # sqlite3 is always pre-imported in stdlib — skip warning
+                    if module == "sqlite3":
+                        continue
+                    if not getattr(getattr(mod, "connect", None), "_is_securescout_patch", False):
+                        logger.warning(
+                            f"{driver} was imported before securescout_iast.init(). "
+                            f"Connections created before init() will not be monitored. "
+                            f"Call init() before importing {driver} for full coverage."
+                        )
 
-    except Exception as e:
-        # Guarantee absolute fail-safety for the customer app on startup
-        logger.error(f"Failed to initialize SecureScout IAST agent: {e}", exc_info=True)
+            # 3. Transmit connection heartbeat on a background thread to prevent blocking boot probes
+            threading.Thread(
+                target=send_heartbeat,
+                args=(framework,),
+                daemon=True
+            ).start()
+
+            _initialized = True
+            logger.info("SecureScout IAST agent initialized successfully.")
+
+        except Exception as e:
+            # Guarantee absolute fail-safety for the customer app on startup
+            logger.error(f"Failed to initialize SecureScout IAST agent: {e}", exc_info=True)

@@ -131,10 +131,12 @@ def test_psycopg2_driver_mock_patching():
         assert reporter_calls[0]["endpoint"] == "POST /api/login"
         assert reporter_calls[0]["source"] == "query_param"
 
-        # Safe call: parameterized query (no match)
+        # Safe call: parameterized query now triggers sql_injection_taint_flow
         reporter_calls.clear()
         cursor.execute("SELECT * FROM items WHERE id = %s", ("compromised_value",))
-        assert len(reporter_calls) == 0
+        assert len(reporter_calls) == 1
+        assert reporter_calls[0]["rule"] == "sql_injection_taint_flow"
+        assert reporter_calls[0]["tainted_value"] == "compromised_value"
 
     ctx.run(run_test)
 

@@ -68,6 +68,37 @@ def check_query_taint(query: str) -> Optional[dict]:
     return None
 
 
+def check_params_taint(params) -> Optional[dict]:
+    """
+    Checks bind parameters (tuple, list, or dict) for tainted values.
+    Used to detect SQLi via parameterized queries where the taint doesn't
+    appear in the query template string itself.
+    """
+    if not params:
+        return None
+    try:
+        registry = _taint_registry.get()
+    except LookupError:
+        return None
+
+    items = params.values() if isinstance(params, dict) else params
+    for v in items:
+        if v is None:
+            continue
+        v_str = v if isinstance(v, str) else str(v)
+        if len(v_str) < 2:
+            continue
+        for tainted_val, meta in registry.items():
+            if tainted_val in v_str:
+                return {
+                    "tainted_value": tainted_val,
+                    "source": meta["source"],
+                    "field_name": meta["field_name"],
+                    "request_id": meta["request_id"],
+                }
+    return None
+
+
 def register_endpoint(request_id: str, endpoint: str) -> None:
     """Registers the HTTP endpoint (method + path) for the current request context."""
     _endpoint_var.set(endpoint)

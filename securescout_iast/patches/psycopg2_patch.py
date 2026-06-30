@@ -1,7 +1,7 @@
 import logging
 import traceback
 
-from securescout_iast.taint import check_query_taint, get_endpoint
+from securescout_iast.taint import check_query_taint, check_params_taint, get_endpoint
 
 logger = logging.getLogger("securescout_iast")
 
@@ -28,6 +28,7 @@ class Psycopg2CursorWrapper:
             if isinstance(query, bytes):
                 query_str = query.decode("utf-8", errors="ignore")
             
+            match = None
             if isinstance(query_str, str):
                 match = check_query_taint(query_str)
                 if match and _reporter_callback:
@@ -46,6 +47,26 @@ class Psycopg2CursorWrapper:
                         stack_trace=stack,
                         endpoint=get_endpoint()
                     )
+
+            # F02 fix — also inspect bind parameters for tainted values
+            if not match and vars is not None:
+                match = check_params_taint(vars if isinstance(vars, (list, tuple, dict)) else (vars,))
+                if match and _reporter_callback:
+                    stack = [
+                        f"File \"{f.filename}\", line {f.lineno}, in {f.name}\n    {f.line}"
+                        for f in traceback.extract_stack()
+                        if "securescout_iast" not in f.filename
+                    ]
+                    _reporter_callback(
+                        rule="sql_injection_taint_flow",
+                        tainted_value=match["tainted_value"],
+                        source=match["source"],
+                        field_name=match["field_name"],
+                        request_id=match["request_id"],
+                        query_snippet=query_str[:200],
+                        stack_trace=stack,
+                        endpoint=get_endpoint()
+                    )
         except Exception as e:
             logger.debug(f"psycopg2 execute hook error: {e}")
         
@@ -57,6 +78,7 @@ class Psycopg2CursorWrapper:
             if isinstance(query, bytes):
                 query_str = query.decode("utf-8", errors="ignore")
             
+            match = None
             if isinstance(query_str, str):
                 match = check_query_taint(query_str)
                 if match and _reporter_callback:
@@ -72,6 +94,29 @@ class Psycopg2CursorWrapper:
                         field_name=match["field_name"],
                         request_id=match["request_id"],
                         query_snippet=query_str,
+                        stack_trace=stack,
+                        endpoint=get_endpoint()
+                    )
+
+            # F02 fix — also inspect bind parameters for tainted values
+            if not match and vars_list:
+                for row in vars_list:
+                    match = check_params_taint(row if isinstance(row, (list, tuple, dict)) else (row,))
+                    if match:
+                        break
+                if match and _reporter_callback:
+                    stack = [
+                        f"File \"{f.filename}\", line {f.lineno}, in {f.name}\n    {f.line}"
+                        for f in traceback.extract_stack()
+                        if "securescout_iast" not in f.filename
+                    ]
+                    _reporter_callback(
+                        rule="sql_injection_taint_flow",
+                        tainted_value=match["tainted_value"],
+                        source=match["source"],
+                        field_name=match["field_name"],
+                        request_id=match["request_id"],
+                        query_snippet=query_str[:200],
                         stack_trace=stack,
                         endpoint=get_endpoint()
                     )
