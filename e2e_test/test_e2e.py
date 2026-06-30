@@ -8,9 +8,6 @@ findings = []
 def custom_queue_finding(**kwargs):
     findings.append(kwargs)
 
-import securescout_iast.reporter
-securescout_iast.reporter.queue_finding = custom_queue_finding
-
 # Install sqlite3 patch using our custom test hook
 install_sqlite3_patch(custom_queue_finding)
 
@@ -20,7 +17,9 @@ from e2e_test.app import app
 client = TestClient(app)
 
 
-def test_e2e_sqlite_injection():
+def test_e2e_sqlite_injection(monkeypatch):
+    import securescout_iast.reporter
+    monkeypatch.setattr(securescout_iast.reporter, "queue_finding", custom_queue_finding)
     # Clear findings list
     findings.clear()
 
@@ -48,7 +47,9 @@ def test_e2e_sqlite_injection():
     assert len(findings) == 0
 
 
-def test_e2e_xss_reflected():
+def test_e2e_xss_reflected(monkeypatch):
+    import securescout_iast.reporter
+    monkeypatch.setattr(securescout_iast.reporter, "queue_finding", custom_queue_finding)
     # Clear findings list
     findings.clear()
 

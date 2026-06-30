@@ -5,6 +5,7 @@ import time
 import json
 import logging
 import urllib.request
+import hashlib
 from typing import List, Optional
 
 logger = logging.getLogger("securescout_iast")
@@ -20,6 +21,25 @@ _running: bool = False
 # Failure / Backoff tracking
 _consecutive_failures: int = 0
 _backoff_until: float = 0.0
+
+# Deduplication cache (fingerprint -> expiry timestamp)
+_dedup_cache: dict[str, float] = {}
+_dedup_lock = threading.Lock()
+_DEDUP_TTL_SECONDS: int = 3600  # 1 hour
+_last_purge_time: float = 0.0
+
+
+def _is_duplicate(rule: str, tainted_value: str, endpoint: str) -> bool:
+    fingerprint = hashlib.sha256(
+        f"{rule}:{tainted_value}:{endpoint}".encode()
+    ).hexdigest()
+    now = time.time()
+    with _dedup_lock:
+        expiry = _dedup_cache.get(fingerprint)
+        if expiry and now < expiry:
+            return True
+        _dedup_cache[fingerprint] = now + _DEDUP_TTL_SECONDS
+        return False
 
 
 def init_reporter(api_key: str, project_id: str, backend_url: str = "https://api.getsecurescout.com") -> None:
@@ -50,6 +70,10 @@ def queue_finding(
     Callback function queued by database patches when a query matches a tainted string.
     Drops findings on queue overflow to preserve memory limits.
     """
+    if _is_duplicate(rule, tainted_value, endpoint):
+        logger.debug(f"SecureScout IAST suppressing duplicate finding: {rule} @ {endpoint}")
+        return
+
     finding = {
         "rule": rule,
         "tainted_source": f"{source}:{field_name}" if field_name else source,
@@ -100,8 +124,17 @@ def send_heartbeat(framework: str = "fastapi") -> bool:
 
 def _reporter_worker() -> None:
     """Daemon thread loop that reads from the queue and aggregates batches of findings."""
-    global _running, _backoff_until
+    global _running, _backoff_until, _last_purge_time
     while _running:
+        # Purge expired dedup cache entries to prevent unbounded memory growth
+        now = time.time()
+        if now - _last_purge_time >= 60.0:
+            _last_purge_time = now
+            with _dedup_lock:
+                expired = [k for k, v in _dedup_cache.items() if v < now]
+                for k in expired:
+                    del _dedup_cache[k]
+
         # If backing off, sleep briefly and skip loop to avoid hammering the backend
         if time.time() < _backoff_until:
             time.sleep(5)
