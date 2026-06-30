@@ -28,6 +28,23 @@ logger = logging.getLogger("securescout_iast")
 _MAX_BODY_BYTES = 1 * 1024 * 1024  # 1MB
 
 
+def _extract_json_taints(data, request_id: str, field_name: str = "", depth: int = 0) -> None:
+    """Recursively extract string values from JSON for taint registration."""
+    if depth > 20:
+        return
+    if isinstance(data, dict):
+        for k, v in data.items():
+            _extract_json_taints(v, request_id, field_name=str(k), depth=depth + 1)
+    elif isinstance(data, list):
+        for item in data:
+            _extract_json_taints(item, request_id, field_name=field_name, depth=depth + 1)
+    elif isinstance(data, str) and len(data) >= 6:
+        try:
+            register_taint(data, source="body", field_name=field_name or "json", request_id=request_id)
+        except Exception:
+            pass
+
+
 class SecureScoutWsgiMiddleware:
     """
     Wrap any WSGI application to enable SecureScout IAST runtime monitoring.
@@ -100,41 +117,44 @@ class SecureScoutWsgiMiddleware:
             try:
                 cookie = SimpleCookie(cookie_header)
                 for key, morsel in cookie.items():
-                    register_taint(morsel.value, source="cookie", field_name=key, request_id=request_id)
+                    if len(morsel.value) >= 6:
+                        register_taint(morsel.value, source="cookie", field_name=key, request_id=request_id)
             except Exception:
                 pass
 
         # Selected HTTP headers
         for header in ("HTTP_REFERER", "HTTP_USER_AGENT", "HTTP_X_FORWARDED_FOR"):
             val = environ.get(header, "")
-            if val:
+            if val and len(val) >= 6:
                 field = header[5:].lower()  # strip HTTP_ prefix
                 try:
                     register_taint(val, source="header", field_name=field, request_id=request_id)
                 except Exception:
                     pass
 
-        # Request body (up to 1MB)
+        # Request body — read full body but only taint-scan first _MAX_BODY_BYTES
         try:
             wsgi_input = environ.get("wsgi.input")
             if wsgi_input:
-                body = wsgi_input.read(_MAX_BODY_BYTES)
-                # Replace wsgi.input so the app can still read the body
-                environ["wsgi.input"] = io.BytesIO(body)
+                full_body = wsgi_input.read()
+                # Always restore the full body so the app receives it intact
+                environ["wsgi.input"] = io.BytesIO(full_body)
+                taint_body = full_body[:_MAX_BODY_BYTES]
                 content_type = environ.get("CONTENT_TYPE", "")
                 if "application/x-www-form-urlencoded" in content_type:
                     for field, values in urllib.parse.parse_qs(
-                        body.decode("utf-8", errors="replace"), keep_blank_values=True
+                        taint_body.decode("utf-8", errors="replace"), keep_blank_values=True
                     ).items():
                         for v in values:
                             register_taint(v, source="body", field_name=field, request_id=request_id)
-                elif body:
-                    register_taint(
-                        body.decode("utf-8", errors="replace")[:4096],
-                        source="body",
-                        field_name="raw_body",
-                        request_id=request_id,
-                    )
+                elif "application/json" in content_type and taint_body:
+                    try:
+                        import json
+                        parsed = json.loads(taint_body.decode("utf-8", errors="replace"))
+                        _extract_json_taints(parsed, request_id)
+                    except Exception:
+                        pass
+                # F23 fix — remove raw body blob registration entirely
         except Exception:
             pass
 
@@ -153,10 +173,12 @@ class _TaintCheckingIterator:
         self._checked = False
 
     def __iter__(self):
-        for chunk in self._iterable:
-            self._chunks.append(chunk)
-            yield chunk
-        self._run_check()
+        try:
+            for chunk in self._iterable:
+                self._chunks.append(chunk)
+                yield chunk
+        finally:
+            self._run_check()
 
     def _run_check(self) -> None:
         if self._checked:
