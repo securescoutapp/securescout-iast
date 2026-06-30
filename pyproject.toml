@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "securescout-iast"
+version = "0.1.0"
+description = "Interactive Application Security Testing (IAST) runtime agent for Python"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+    "Framework :: FastAPI",
+]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["securescout_iast*"]
