@@ -5,9 +5,10 @@ from securescout_iast.reporter import init_reporter, send_heartbeat, queue_findi
 from securescout_iast.patches.psycopg2_patch import install_psycopg2_patch
 from securescout_iast.patches.asyncpg_patch import install_asyncpg_patch
 from securescout_iast.middleware import SecureScoutIastMiddleware
+from securescout_iast.wsgi_middleware import SecureScoutWsgiMiddleware
 
-# Expose the ASGI middleware class and the init entrypoint
-__all__ = ["SecureScoutIastMiddleware", "init"]
+# Expose the ASGI/WSGI middleware classes and the init entrypoint
+__all__ = ["SecureScoutIastMiddleware", "SecureScoutWsgiMiddleware", "init"]
 
 logger = logging.getLogger("securescout_iast")
 _initialized = False
