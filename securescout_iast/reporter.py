@@ -34,6 +34,7 @@ _api_key: _MaskedStr = _MaskedStr("")
 _project_id: str = ""
 _backend_url: str = "https://api.getsecurescout.com"
 _running: bool = False
+agent_status: str = "not_initialized"
 
 # Failure / Backoff tracking
 _consecutive_failures: int = 0
@@ -141,6 +142,7 @@ def send_heartbeat(framework: str = "fastapi") -> bool:
     
     try:
         with urllib.request.urlopen(req, timeout=5) as response:
+            response.read(1024 * 64)  # cap at 64KB — prevent large-response OOM
             return response.status == 200
     except Exception as e:
         logger.debug(f"Failed to transmit IAST heartbeat: {e}")
@@ -206,6 +208,7 @@ def _send_batch(batch: List[dict]) -> bool:
     
     try:
         with urllib.request.urlopen(req, timeout=5) as response:
+            response.read(1024 * 64)  # cap at 64KB
             if response.status == 202:
                 _consecutive_failures = 0
                 return True

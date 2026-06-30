@@ -9,11 +9,17 @@ from securescout_iast.middleware import SecureScoutIastMiddleware
 from securescout_iast.wsgi_middleware import SecureScoutWsgiMiddleware
 
 # Expose the ASGI/WSGI middleware classes and the init entrypoint
-__all__ = ["SecureScoutIastMiddleware", "SecureScoutWsgiMiddleware", "init"]
+__all__ = ["SecureScoutIastMiddleware", "SecureScoutWsgiMiddleware", "init", "is_healthy"]
 
 logger = logging.getLogger("securescout_iast")
 _initialized = False
 _init_lock = threading.Lock()
+
+
+def is_healthy() -> bool:
+    """Returns True if the IAST agent initialized successfully and the reporter is running."""
+    from securescout_iast.reporter import _running
+    return _initialized and _running
 
 
 def init(
@@ -73,8 +79,12 @@ def init(
             ).start()
 
             _initialized = True
+            from securescout_iast import reporter as _rep
+            _rep.agent_status = "active"
             logger.info("SecureScout IAST agent initialized successfully.")
 
         except Exception as e:
+            from securescout_iast import reporter as _rep
+            _rep.agent_status = f"failed: {e}"
             # Guarantee absolute fail-safety for the customer app on startup
             logger.error(f"Failed to initialize SecureScout IAST agent: {e}", exc_info=True)
