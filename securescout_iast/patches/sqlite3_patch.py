@@ -13,6 +13,10 @@ class Sqlite3CursorWrapper:
         self._cursor = cursor
         self._reporter_callback = reporter_callback
 
+    @property
+    def __class__(self):
+        return type(self._cursor)
+
     def execute(self, query, parameters=None):
         try:
             match = None
@@ -124,6 +128,10 @@ class Sqlite3ConnectionWrapper:
     def __init__(self, connection, reporter_callback):
         self._connection = connection
         self._reporter_callback = reporter_callback
+
+    @property
+    def __class__(self):
+        return type(self._connection)
 
     def cursor(self, *args, **kwargs):
         real_cursor = self._connection.cursor(*args, **kwargs)

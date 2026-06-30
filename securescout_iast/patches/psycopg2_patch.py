@@ -12,6 +12,10 @@ class Psycopg2CursorWrapper:
     def __init__(self, original_cursor):
         self._original_cursor = original_cursor
 
+    @property
+    def __class__(self):
+        return type(self._original_cursor)
+
     def __getattr__(self, name):
         return getattr(self._original_cursor, name)
 
@@ -129,6 +133,10 @@ class Psycopg2CursorWrapper:
 class Psycopg2ConnectionWrapper:
     def __init__(self, original_conn):
         self._original_conn = original_conn
+
+    @property
+    def __class__(self):
+        return type(self._original_conn)
 
     def __getattr__(self, name):
         return getattr(self._original_conn, name)
